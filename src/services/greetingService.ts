@@ -183,11 +183,20 @@ export const createGreetingCard = async (
   input: CreateGreetingInput,
 ): Promise<CreateGreetingResult> => {
   if (isSupabaseConfigured()) {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
     const { data, error } = await supabase.functions.invoke('create-greeting', {
       body: {
         ...input,
         currency: input.currency ?? 'INR',
       },
+      headers: session?.access_token
+        ? {
+            Authorization: `Bearer ${session.access_token}`,
+          }
+        : undefined,
     });
 
     if (error) throw new Error(await readFunctionError(error));
