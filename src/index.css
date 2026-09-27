@@ -1,0 +1,345 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+/*
+ * Accessibility + performance: users who ask for reduced motion get an
+ * essentially static UI, which also keeps animations from stealing frames on
+ * low-end devices.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Greeting card decorations                                           */
+/* ------------------------------------------------------------------ */
+
+/* Soft drifting particle field layered behind card content. Colour comes
+   from the element's `color`, so it inherits each theme's accent. */
+@keyframes card-particle-drift {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 0;
+  }
+  18% {
+    opacity: 0.55;
+  }
+  82% {
+    opacity: 0.35;
+  }
+  100% {
+    transform: translate3d(0, -110px, 0) scale(1.18);
+    opacity: 0;
+  }
+}
+
+.card-particles::before,
+.card-particles::after {
+  content: '';
+  position: absolute;
+  inset: -25%;
+  pointer-events: none;
+  background-image:
+    radial-gradient(circle, currentColor 0 1.5px, transparent 2px),
+    radial-gradient(circle, currentColor 0 1px, transparent 1.5px),
+    radial-gradient(circle, currentColor 0 1.6px, transparent 2px),
+    radial-gradient(circle, currentColor 0 1px, transparent 1.5px);
+  background-position: 12% 22%, 68% 38%, 38% 74%, 84% 82%;
+  background-size: 220px 220px;
+  animation: card-particle-drift 15s linear infinite;
+}
+
+.card-particles::after {
+  animation-duration: 23s;
+  animation-delay: -8s;
+  opacity: 0.6;
+}
+
+/* Gentle breathing glow for premium/elite card shells. */
+@keyframes card-border-glow {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.card-glow-border {
+  animation: card-border-glow 4.5s ease-in-out infinite;
+}
+
+/* ------------------------------------------------------------------ */
+/* Tier shells — Basic / Premium / Elite read progressively richer.    */
+/* ------------------------------------------------------------------ */
+
+/* BASIC — clean and elegant, only a whisper of movement on hover. */
+.card-shell-basic {
+  transition: transform 320ms ease, box-shadow 320ms ease;
+}
+.card-shell-basic:hover {
+  transform: translateY(-2px);
+}
+
+/* PREMIUM — animated shimmer border + intricate engraved pattern. */
+@property --premium-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+@keyframes premium-border-spin {
+  to {
+    --premium-angle: 360deg;
+  }
+}
+
+.card-shell-premium {
+  position: relative;
+  isolation: isolate;
+}
+
+.card-shell-premium::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.5px;
+  background: conic-gradient(
+    from var(--premium-angle),
+    transparent 0deg,
+    var(--shell-accent, #ffffff) 55deg,
+    transparent 130deg,
+    transparent 215deg,
+    var(--shell-accent, #ffffff) 290deg,
+    transparent 360deg
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+  opacity: 0.9;
+  animation: premium-border-spin 7s linear infinite;
+}
+
+/* Intricate engraved sunburst + soft corner shading. */
+.card-pattern-premium {
+  background-image:
+    repeating-conic-gradient(
+      from 0deg at 50% 50%,
+      currentColor 0deg 5deg,
+      transparent 5deg 20deg
+    ),
+    radial-gradient(circle at 50% 0%, transparent 58%, rgba(0, 0, 0, 0.24) 100%);
+  background-size: 150px 150px, 100% 100%;
+  -webkit-mask-image: radial-gradient(125% 100% at 50% 0%, #000 28%, transparent 80%);
+  mask-image: radial-gradient(125% 100% at 50% 0%, #000 28%, transparent 80%);
+}
+
+/* ELITE — breathing outer glow + a slow, subtle 3D tilt. */
+@keyframes elite-breath {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 16px var(--shell-glow, rgba(168, 85, 247, 0.4)));
+  }
+  50% {
+    filter: drop-shadow(0 0 34px var(--shell-glow, rgba(168, 85, 247, 0.65)));
+  }
+}
+
+@keyframes elite-tilt {
+  0%,
+  100% {
+    transform: perspective(1200px) rotateX(0deg) rotateY(0deg);
+  }
+  30% {
+    transform: perspective(1200px) rotateX(2.4deg) rotateY(-3deg);
+  }
+  70% {
+    transform: perspective(1200px) rotateX(-2deg) rotateY(3deg);
+  }
+}
+
+.card-shell-elite {
+  animation: elite-breath 5.5s ease-in-out infinite, elite-tilt 9s ease-in-out infinite;
+  transform-style: preserve-3d;
+}
+
+/* ------------------------------------------------------------------ */
+/* Category ambience — birthday, wedding, festivals.                   */
+/* ------------------------------------------------------------------ */
+
+/* Floating balloons drifting upward. */
+@keyframes balloon-rise {
+  0% {
+    transform: translate3d(0, 40px, 0) rotate(-6deg);
+    opacity: 0;
+  }
+  12% {
+    opacity: 0.9;
+  }
+  50% {
+    transform: translate3d(14px, -55%, 0) rotate(6deg);
+  }
+  88% {
+    opacity: 0.85;
+  }
+  100% {
+    transform: translate3d(-10px, -125%, 0) rotate(-4deg);
+    opacity: 0;
+  }
+}
+
+.card-balloon {
+  position: absolute;
+  bottom: -56px;
+  animation-name: balloon-rise;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+  will-change: transform, opacity;
+}
+
+/* Falling petals / hearts. */
+@keyframes petal-fall {
+  0% {
+    transform: translate3d(0, -30px, 0) rotate(0deg);
+    opacity: 0;
+  }
+  12% {
+    opacity: 0.9;
+  }
+  100% {
+    transform: translate3d(34px, 120%, 0) rotate(240deg);
+    opacity: 0;
+  }
+}
+
+.card-petal {
+  position: absolute;
+  top: -36px;
+  animation-name: petal-fall;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  will-change: transform, opacity;
+}
+
+/* Glowing diyas. */
+@keyframes diya-glow {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 5px rgba(245, 158, 11, 0.55));
+    transform: scale(1);
+  }
+  50% {
+    filter: drop-shadow(0 0 18px rgba(245, 158, 11, 1));
+    transform: scale(1.08);
+  }
+}
+
+.card-diya {
+  position: absolute;
+  bottom: 12px;
+  animation: diya-glow 3s ease-in-out infinite;
+}
+
+/* Sparkling firework bursts. */
+@keyframes firework-pop {
+  0% {
+    transform: scale(0.2);
+    opacity: 0;
+  }
+  30% {
+    transform: scale(1);
+    opacity: 0.95;
+  }
+  100% {
+    transform: scale(1.7);
+    opacity: 0;
+  }
+}
+
+.card-firework {
+  position: absolute;
+  animation: firework-pop 3.6s ease-out infinite;
+}
+
+/* Premium birthday candle — the flame flickers and brightens on hover. */
+@keyframes candle-flicker {
+  0% {
+    transform: scaleY(1) scaleX(1) rotate(-2deg);
+    opacity: 0.9;
+  }
+  50% {
+    transform: scaleY(1.16) scaleX(0.9) rotate(2deg);
+    opacity: 1;
+  }
+  100% {
+    transform: scaleY(0.94) scaleX(1.06) rotate(-1deg);
+    opacity: 0.92;
+  }
+}
+
+.css-candle {
+  position: absolute;
+  bottom: 8%;
+  right: 12%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: auto;
+  z-index: 5;
+}
+
+.css-candle-flame {
+  width: 13px;
+  height: 23px;
+  margin-bottom: 2px;
+  border-radius: 50% 50% 45% 45%;
+  transform-origin: bottom center;
+  filter: drop-shadow(0 0 8px rgba(251, 191, 36, 0.9));
+  animation: candle-flicker 0.55s ease-in-out infinite alternate;
+}
+
+.css-candle-body {
+  width: 15px;
+  height: 44px;
+  border-radius: 4px 4px 3px 3px;
+  box-shadow: inset -3px 0 6px rgba(0, 0, 0, 0.18), 0 4px 10px rgba(0, 0, 0, 0.35);
+}
+
+.css-candle:hover .css-candle-flame {
+  animation-duration: 0.24s;
+  filter: drop-shadow(0 0 16px rgba(251, 191, 36, 1)) brightness(1.3);
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: linear-gradient(135deg, #0b0514 0%, #1a0b2e 100%);
+  min-height: 100vh;
+  color: white;
+  overflow-x: hidden;
+}
