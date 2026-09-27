@@ -1,0 +1,8 @@
+{
+  "version": "5",
+  "remote": {
+    "https://deno.land/std@0.224.0/async/delay.ts": "f90dd685b97c2f142b8069082993e437b1602b8e2561134827eeb7c12b95c499",
+    "https://deno.land/std@0.224.0/http/server.ts": "f9313804bf6467a1704f45f76cb6cd0a3396a3b31c316035e6a4c2035d1ea514",
+    "https://esm.sh/@supabase/supabase-js@2.44.2": "1f8001446d6a1e4547252547b94b7f418403ce66da72fc08ba537503720a6078"
+  }
+}

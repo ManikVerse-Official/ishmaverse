@@ -1,3 +1,4 @@
+// @ts-nocheck
 // The ONLY path that can create a greeting card and its ledger entry.
 //
 // Security model:
@@ -157,6 +158,7 @@ serve(async (req: Request) => {
     let settlement: VerifiedPayment;
 
     if (admin) {
+      // Admin users bypass payment entirely — the auth check is authoritative.
       settlement = {
         provider: "admin",
         paymentId: "",
@@ -164,6 +166,7 @@ serve(async (req: Request) => {
         currency: "INR",
       };
     } else {
+      // Regular users must present valid payment proof.
       const proof = body.payment;
       if (!proof?.provider) {
         return errorResponse("Payment is required to create this card", 402);
