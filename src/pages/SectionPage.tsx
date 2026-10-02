@@ -18,6 +18,7 @@ import {
 import { getThemePriceRanges, themePriceForRegion } from '../services/catalog';
 import { useCurrency } from '../context/CurrencyContext';
 import { TiltCard } from '../components/TiltCard';
+import { ReportCardStudio } from '../components/ReportCardStudio';
 import { GreetingTheme } from '../types';
 import { useGreeting } from '../context/GreetingContext';
 import { useCatalog } from '../context/CatalogContext';
@@ -35,6 +36,13 @@ export const SectionPage: React.FC = () => {
 
   const section = getSectionById(sectionId);
   const isGreetings = sectionId === 'greetings';
+  const isReportCard = sectionId === 'reportcard-studio';
+
+  // ReportCard Studio is its own SPA; render the dedicated embed view instead
+  // of trying to mount it inside this router (which caused a route clash).
+  if (isReportCard) {
+    return <ReportCardStudio />;
+  }
 
   const themes = useMemo(() => {
     const bySearch = searchThemeList(allThemes, searchTerm);
@@ -81,6 +89,8 @@ export const SectionPage: React.FC = () => {
           </Link>
         </div>
         <Footer />
+        {/* Section-aware Joy: knows this section's walkthrough. */}
+        <Chatbot sectionId={section.id} />
       </div>
     );
   }
@@ -297,8 +307,9 @@ export const SectionPage: React.FC = () => {
                       <div className="flex items-center justify-between mt-4">
                         <div>
                           <div className="text-2xl font-black" style={{ color: theme.accent }}>
-                            {currencySymbol}
-                            {themePriceForRegion(theme, isIndiaRegion)}
+                            {theme.price === 0 && theme.price_usd === 0
+                              ? 'FREE'
+                              : `${currencySymbol}${themePriceForRegion(theme, isIndiaRegion)}`}
                           </div>
                           {isAdmin && <div className="text-[10px] text-emerald-300">Admin: free</div>}
                         </div>
@@ -332,7 +343,8 @@ export const SectionPage: React.FC = () => {
       />
 
       <Footer />
-      <Chatbot />
+      {/* Section-aware Joy: knows this section's walkthrough. */}
+      <Chatbot sectionId={section.id} />
     </div>
   );
 };

@@ -8,6 +8,7 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { errorResponse, handleOptions, jsonResponse } from "../_shared/http.ts";
 import { createAdminClient, getUserFromRequest, isAdminUser } from "../_shared/auth.ts";
+import { adminNotifyEmails } from "../_shared/admin.ts";
 import { sendEmail } from "../_shared/email.ts";
 
 interface ReceiptRequest {
@@ -33,6 +34,13 @@ const siteBaseUrl = (): string =>
   (Deno.env.get("PUBLIC_SITE_URL") ?? Deno.env.get("SITE_URL") ?? "https://ishmaverse.com")
     .replace(/\/+$/, "");
 
+/** Company logo printed on every receipt. */
+const brandLogoUrl = (): string =>
+  Deno.env.get("BRAND_LOGO_URL") ?? `${siteBaseUrl()}/ishmaverse.png`;
+
+/** Where customers reach the billing team. */
+const supportEmail = (): string => Deno.env.get("SUPPORT_EMAIL") ?? "support@ishmaverse.com";
+
 const escapeHtml = (value: string): string =>
   value
     .replace(/&/g, "&amp;")
@@ -41,9 +49,16 @@ const escapeHtml = (value: string): string =>
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 
+/**
+ * Formats the receipt's cost.
+ *
+ * A zero amount is printed as the currency's 0.00 — the word "free" is never
+ * used as a price, so a comped or giveaway order still reads like a real bill.
+ */
 const formatMoney = (amount: number, currency: string): string => {
   const symbol = currency === "USD" ? "$" : "₹";
-  return `${symbol}${amount.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const value = Number.isFinite(amount) ? amount : 0;
+  return `${symbol}${value.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
 
 const buildReceiptNumber = (row: LedgerRow): string =>
@@ -67,6 +82,11 @@ const buildReceiptHtml = (
   .card { max-width: 620px; margin: 0 auto; background: linear-gradient(160deg, #1a0b2e, #0f0718); border: 1px solid rgba(139,92,246,0.45); border-radius: 20px; padding: 32px; box-shadow: 0 24px 60px rgba(139,92,246,0.25); }
   .brand { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 28px; }
   .brand h1 { font-size: 20px; margin: 0; letter-spacing: 0.08em; text-transform: uppercase; background: linear-gradient(90deg,#a78bfa,#f0abfc); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .logo-row { display: flex; align-items: center; gap: 12px; }
+  .logo-row img { border-radius: 10px; display: block; }
+  .issuer { display: flex; flex-direction: column; gap: 2px; padding-bottom: 10px; margin-bottom: 10px; border-bottom: 1px solid rgba(139,92,246,0.2); }
+  .issuer strong { color: #d7d3e6; font-size: 12px; letter-spacing: 0.04em; }
+  .issuer span { color: #8b83a8; font-size: 11px; }
   .badge { font-size: 11px; text-transform: uppercase; letter-spacing: 0.14em; padding: 6px 12px; border-radius: 999px; background: rgba(16,185,129,0.15); color: #6ee7b7; border: 1px solid rgba(16,185,129,0.4); }
   .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 24px; font-size: 13px; margin-bottom: 24px; }
   .meta span { display: block; color: #a39bc4; font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 4px; }
@@ -82,8 +102,11 @@ const buildReceiptHtml = (
 <body>
   <div class="card">
     <div class="brand">
-      <h1>Ishmaverse</h1>
-      <span class="badge">Paid</span>
+      <div class="logo-row">
+        <img src="${escapeHtml(brandLogoUrl())}" alt="Ishmaverse" width="38" height="38" />
+        <h1>Ishmaverse</h1>
+      </div>
+      <span class="badge">Bill &amp; Receipt</span>
     </div>
     <div class="meta">
       <div><span>Receipt no.</span>${escapeHtml(receiptNumber)}</div>
@@ -95,7 +118,7 @@ const buildReceiptHtml = (
     </div>
     <table>
       <thead>
-        <tr><th>Description</th><th class="amount">Amount</th></tr>
+        <tr><th>Item</th><th class="amount">Cost</th></tr>
       </thead>
       <tbody>
         <tr>
@@ -105,10 +128,14 @@ const buildReceiptHtml = (
       </tbody>
     </table>
     <div class="total">
-      <span>Total paid</span>
+      <span>Total</span>
       <strong>${escapeHtml(formatMoney(Number(row.amount), row.currency))}</strong>
     </div>
     <footer>
+      <div class="issuer">
+        <strong>Accountant Bot · Ishmaverse (iM)</strong>
+        <span>Assistant Joy · ${escapeHtml(supportEmail())}</span>
+      </div>
       Transaction ID: ${escapeHtml(row.id)}<br />
       This receipt was generated automatically by Ishmaverse. Digital greeting cards
       remain live for 48 hours from creation.<br />
@@ -231,6 +258,20 @@ serve(async (req: Request) => {
     });
     if (!emailed) {
       console.warn("Receipt issued but not emailed (missing RESEND_API_KEY or recipient).");
+    }
+
+    /*
+     * The owner keeps a copy of every issued receipt so no sale (or comp) can
+     * go unnoticed. Admin copies are clearly marked and never replace the
+     * buyer's own copy.
+     */
+    for (const adminEmail of adminNotifyEmails()) {
+      if (adminEmail === (receipt.client_email ?? "").toLowerCase()) continue;
+      await sendEmail({
+        to: adminEmail,
+        subject: `[Admin copy] Receipt ${receipt.receipt_number} — ${row.client_name}`,
+        html: buildReceiptHtml(row, receipt.receipt_number, receipt.issued_at, manageUrl),
+      });
     }
 
     return jsonResponse({

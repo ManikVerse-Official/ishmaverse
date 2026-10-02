@@ -22,6 +22,14 @@ import {
   DollarSign,
   Sparkles,
   ImageOff,
+  Users,
+  MapPin,
+  BarChart3,
+  ExternalLink,
+  FileText,
+  Crown,
+  CalendarClock,
+  Mail,
 } from 'lucide-react';
 import { GreetingCard, GreetingTheme, GreetingTier, Product, Transaction } from '../types';
 import { supabase, isSupabaseConfigured } from '../services/supabase';
@@ -35,6 +43,19 @@ import {
   uploadThemeArtwork,
 } from '../services/catalog';
 import { CARD_PUBLIC_COLUMNS } from '../services/greetingService';
+import {
+  AudienceVisit,
+  fetchAudienceVisits,
+  summariseAudience,
+} from '../services/analytics';
+import {
+  AdminSubscription,
+  SubscriptionEmailLogEntry,
+  SubscriptionTotals,
+  cancelSubscription,
+  fetchSubscriptionOverview,
+  renewSubscription,
+} from '../services/subscriptions';
 import { SmartImage } from './SmartImage';
 import {
   ANIMATION_OPTIONS,
@@ -50,7 +71,16 @@ import { useBrand } from '../context/BrandContext';
 import { useGreeting } from '../context/GreetingContext';
 import { useCatalog } from '../context/CatalogContext';
 
-type Tab = 'overview' | 'greetings' | 'products' | 'pricing' | 'transactions' | 'cards' | 'settings';
+type Tab =
+  | 'overview'
+  | 'audience'
+  | 'greetings'
+  | 'products'
+  | 'pricing'
+  | 'transactions'
+  | 'cards'
+  | 'subscriptions'
+  | 'settings';
 
 interface ThemeForm {
   name: string;
@@ -206,6 +236,12 @@ export const AdminDashboard: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [cards, setCards] = useState<GreetingCard[]>([]);
+  const [visits, setVisits] = useState<AudienceVisit[]>([]);
+  const [subscriptions, setSubscriptions] = useState<AdminSubscription[]>([]);
+  const [subscriptionTotals, setSubscriptionTotals] = useState<SubscriptionTotals | null>(null);
+  const [subscriptionEmails, setSubscriptionEmails] = useState<SubscriptionEmailLogEntry[]>([]);
+  const [subscriptionError, setSubscriptionError] = useState('');
+  const [subscriptionBusy, setSubscriptionBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
 
@@ -248,13 +284,15 @@ export const AdminDashboard: React.FC = () => {
         return;
       }
       try {
-        const [transactionsRes, cardsRes] = await Promise.all([
+        const [transactionsRes, cardsRes, visitsRes] = await Promise.all([
           supabase.from('transactions').select('*').order('created_at', { ascending: false }),
           supabase.from('greeting_cards').select(CARD_PUBLIC_COLUMNS).order('created_at', { ascending: false }),
+          fetchAudienceVisits(2000),
         ]);
         if (!active) return;
         if (!transactionsRes.error) setTransactions(transactionsRes.data || []);
         if (!cardsRes.error) setCards(cardsRes.data || []);
+        if (visitsRes) setVisits(visitsRes);
       } catch {
         /* offline — leave the tables empty */
       } finally {
@@ -269,13 +307,54 @@ export const AdminDashboard: React.FC = () => {
 
   const tabs: { id: Tab; label: string; icon: typeof Home }[] = [
     { id: 'overview', label: 'Overview', icon: Home },
+    { id: 'audience', label: 'Audience', icon: Users },
     { id: 'greetings', label: 'Manage Greetings', icon: Heart },
     { id: 'products', label: 'Upload Products', icon: Package },
     { id: 'pricing', label: 'Pricing Control', icon: Tag },
     { id: 'transactions', label: 'Transactions', icon: CreditCard },
     { id: 'cards', label: 'Greeting Cards', icon: Sparkles },
+    { id: 'subscriptions', label: 'Subscriptions', icon: Crown },
     { id: 'settings', label: 'Site Settings', icon: Settings },
   ];
+
+  /*
+   * ReportCard Studio subscriptions. The tables behind this are locked to the
+   * service role, so the data comes from the `admin-subscriptions` Edge
+   * Function (which verifies the admin JWT before answering).
+   */
+  const loadSubscriptions = async () => {
+    setSubscriptionBusy(true);
+    setSubscriptionError('');
+    const data = await fetchSubscriptionOverview();
+    if (data) {
+      setSubscriptions(data.subscriptions);
+      setSubscriptionTotals(data.totals);
+      setSubscriptionEmails(data.emails);
+    } else {
+      setSubscriptionError(
+        isSupabaseConfigured()
+          ? 'Could not load subscriptions. Deploy the admin-subscriptions function and make sure you are signed in as an admin.'
+          : 'Supabase is not connected, so subscriptions cannot be loaded.',
+      );
+    }
+    setSubscriptionBusy(false);
+  };
+
+  useEffect(() => {
+    if (activeTab === 'subscriptions' && isAdmin) void loadSubscriptions();
+    // `loadSubscriptions` is recreated each render; the tab/admin pair is what matters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, isAdmin]);
+
+  const handleSubscriptionAction = async (
+    action: 'renew' | 'cancel',
+    email: string,
+  ) => {
+    setSubscriptionBusy(true);
+    if (action === 'renew') await renewSubscription(email);
+    else await cancelSubscription(email);
+    await loadSubscriptions();
+  };
 
   const priceRanges = useMemo(() => getThemePriceRanges(themes), [themes]);
 
@@ -314,6 +393,10 @@ export const AdminDashboard: React.FC = () => {
   );
 
   const totalRevenue = transactions.reduce((sum, tx) => sum + (tx.amount ?? 0), 0);
+
+  const audience = useMemo(() => summariseAudience(visits), [visits]);
+  const reportCardUrl =
+    (import.meta.env.VITE_REPORTCARD_URL as string | undefined) || '/reportcard';
 
   /* ----------------------------- actions ----------------------------- */
 
@@ -582,7 +665,7 @@ export const AdminDashboard: React.FC = () => {
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 min-w-0 px-4 sm:px-6 lg:px-10 pt-24 lg:pt-10 pb-16">
+      <main className="flex-1 min-w-0 px-4 sm:px-6 lg:px-10 pt-5 sm:pt-6 lg:pt-10 pb-16">
         <div className="max-w-6xl mx-auto">
           {/* Header */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
@@ -592,25 +675,29 @@ export const AdminDashboard: React.FC = () => {
               </h2>
               <p className="text-sm text-gray-400 mt-1">
                 {activeTab === 'overview' && 'A quick snapshot of your live catalog and sales.'}
+                {activeTab === 'audience' &&
+                  'Who visited you — visitors, locations and pages. Admin traffic is excluded.'}
                 {activeTab === 'greetings' && 'Add, edit, price or remove any greeting theme.'}
                 {activeTab === 'products' && 'Upload and manage every store product.'}
                 {activeTab === 'pricing' && 'Set every price in one place — changes go live instantly.'}
                 {activeTab === 'transactions' && 'Every settled payment on the ledger.'}
                 {activeTab === 'cards' && 'All generated greeting cards and their share links.'}
+                {activeTab === 'subscriptions' &&
+                  'Who subscribed to ReportCard Studio, which plan, and when it renews or lapses.'}
                 {activeTab === 'settings' && 'Brand name, tagline and logo.'}
               </p>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 w-full sm:w-auto">
               {showSearch && (
-                <div className="relative" title={searchPlaceholder}>
+                <div className="relative w-full sm:w-auto" title={searchPlaceholder}>
                   <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                   <input
                     type="text"
                     placeholder={searchPlaceholder}
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-9 pr-4 py-2.5 bg-bg-dark-end border border-neon-purple/30 rounded-xl text-white text-sm focus:outline-none focus:border-neon-purple w-52"
+                    className="pl-9 pr-4 py-2.5 bg-bg-dark-end border border-neon-purple/30 rounded-xl text-white text-sm focus:outline-none focus:border-neon-purple w-full sm:w-52"
                   />
                 </div>
               )}
@@ -680,6 +767,159 @@ export const AdminDashboard: React.FC = () => {
                   <Sparkles className="w-4 h-4" />
                   Generate free card
                 </button>
+                {/* ReportCard Studio is part of the Ishmaverse ecosystem — jump straight there. */}
+                <a
+                  href={reportCardUrl}
+                  className="flex items-center gap-2 px-5 py-3 border border-neon-purple/50 text-neon-purple rounded-xl font-semibold hover:bg-neon-purple/10 transition-all"
+                >
+                  <FileText className="w-4 h-4" />
+                  Open ReportCard Studio
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+              </div>
+            </div>
+          )}
+
+          {/* Audience */}
+          {activeTab === 'audience' && (
+            <div className="space-y-6">
+              {!isSupabaseConfigured() && (
+                <p className="px-5 py-3 text-xs text-yellow-200 bg-yellow-500/10 border border-yellow-500/20 rounded-xl">
+                  Connect Supabase and deploy <code>track-visit</code> to collect audience data.
+                </p>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <StatCard
+                  label="Total visits"
+                  value={audience.totalVisits.toLocaleString('en-IN')}
+                  icon={<BarChart3 className="w-5 h-5 text-neon-purple" />}
+                />
+                <StatCard
+                  label="Unique visitors"
+                  value={audience.uniqueVisitors.toLocaleString('en-IN')}
+                  icon={<Users className="w-5 h-5 text-green-400" />}
+                />
+                <StatCard
+                  label="Visits today"
+                  value={audience.todayVisits.toLocaleString('en-IN')}
+                  icon={<TrendingUp className="w-5 h-5 text-yellow-400" />}
+                />
+                <StatCard
+                  label="Last 7 days"
+                  value={audience.last7Visits.toLocaleString('en-IN')}
+                  icon={<TrendingUp className="w-5 h-5 text-blue-400" />}
+                />
+              </div>
+
+              <p className="text-xs text-gray-500">
+                Admin traffic is excluded automatically, so these are real customers.
+              </p>
+
+              {/* Visitors per day — spot which days were busiest. */}
+              <div className="bg-bg-dark-end border border-neon-purple/25 rounded-2xl p-5">
+                <div className="flex items-center gap-2 mb-4">
+                  <BarChart3 className="w-4 h-4 text-neon-purple" />
+                  <h3 className="font-semibold text-white">Visitors per day (last 14 days)</h3>
+                </div>
+                <div className="flex items-end gap-1.5 sm:gap-2 h-32">
+                  {audience.days.map((day) => {
+                    const max = Math.max(...audience.days.map((d) => d.count), 1);
+                    const height = Math.round((day.count / max) * 100);
+                    return (
+                      <div key={day.label} className="flex-1 flex flex-col items-center gap-1 min-w-0">
+                        <span className="text-[10px] text-gray-500 tabular-nums">{day.count}</span>
+                        <div className="w-full flex-1 flex items-end">
+                          <div
+                            className="w-full bg-neon-purple/70 rounded-t"
+                            style={{ height: `${Math.max(height, day.count > 0 ? 6 : 0)}%` }}
+                            title={`${day.count} visits`}
+                          />
+                        </div>
+                        <span className="text-[9px] text-gray-600 truncate w-full text-center">
+                          {day.label}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                <BreakdownCard
+                  title="Most visited sections"
+                  icon={<Sparkles className="w-4 h-4 text-yellow-400" />}
+                  rows={audience.sections}
+                  empty="No section data yet."
+                />
+                <BreakdownCard
+                  title="Top countries"
+                  icon={<MapPin className="w-4 h-4 text-pink-400" />}
+                  rows={audience.countries}
+                  empty="No location data yet."
+                />
+                <BreakdownCard
+                  title="Top cities"
+                  icon={<MapPin className="w-4 h-4 text-blue-400" />}
+                  rows={audience.cities}
+                  empty="No city data yet."
+                />
+                <BreakdownCard
+                  title="Top pages"
+                  icon={<BarChart3 className="w-4 h-4 text-neon-purple" />}
+                  rows={audience.pages}
+                  empty="No page views yet."
+                />
+              </div>
+
+              <div className="bg-bg-dark-end border border-neon-purple/25 rounded-2xl overflow-hidden">
+                <div className="px-5 py-3 border-b border-neon-purple/20 flex items-center gap-2">
+                  <Users className="w-4 h-4 text-green-400" />
+                  <h3 className="font-semibold text-white">Recent visits</h3>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-white/5">
+                      <tr>
+                        {['When', 'Page', 'Location', 'Device', 'Browser'].map((heading) => (
+                          <th
+                            key={heading}
+                            className="px-5 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider"
+                          >
+                            {heading}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-neon-purple/10">
+                      {visits.slice(0, 40).map((visit) => (
+                        <tr key={visit.id} className="hover:bg-white/5">
+                          <td className="px-5 py-3 text-gray-400 text-sm whitespace-nowrap">
+                            {new Date(visit.created_at).toLocaleString()}
+                          </td>
+                          <td className="px-5 py-3 text-white text-sm max-w-[220px] truncate">
+                            {visit.path}
+                          </td>
+                          <td className="px-5 py-3 text-gray-300 text-sm">
+                            {[visit.city, visit.region, visit.country].filter(Boolean).join(', ') ||
+                              '—'}
+                          </td>
+                          <td className="px-5 py-3 text-gray-400 text-sm capitalize">
+                            {visit.device ?? '—'}
+                          </td>
+                          <td className="px-5 py-3 text-gray-400 text-sm">{visit.browser ?? '—'}</td>
+                        </tr>
+                      ))}
+                      {visits.length === 0 && (
+                        <tr>
+                          <td colSpan={5} className="px-5 py-10 text-center text-gray-500 text-sm">
+                            No visits recorded yet.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           )}
@@ -1053,6 +1293,189 @@ export const AdminDashboard: React.FC = () => {
                       )}
                     </tbody>
                   </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Subscriptions — ReportCard Studio plans */}
+          {activeTab === 'subscriptions' && (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                <StatCard
+                  label="Subscribers"
+                  value={String(subscriptionTotals?.total ?? subscriptions.length)}
+                  icon={<Crown className="w-5 h-5 text-purple-400" />}
+                />
+                <StatCard
+                  label="Active"
+                  value={String(subscriptionTotals?.active ?? 0)}
+                  icon={<ShieldCheck className="w-5 h-5 text-green-400" />}
+                />
+                <StatCard
+                  label="Expiring soon"
+                  value={String(subscriptionTotals?.expiring ?? 0)}
+                  icon={<CalendarClock className="w-5 h-5 text-yellow-400" />}
+                />
+                <StatCard
+                  label="Expired"
+                  value={String(subscriptionTotals?.expired ?? 0)}
+                  icon={<CalendarClock className="w-5 h-5 text-red-400" />}
+                />
+                <StatCard
+                  label="Active revenue"
+                  value={`₹${(subscriptionTotals?.revenueInr ?? 0).toLocaleString('en-IN')}`}
+                  icon={<TrendingUp className="w-5 h-5 text-green-400" />}
+                />
+              </div>
+
+              {subscriptionError && (
+                <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-200">
+                  {subscriptionError}
+                </div>
+              )}
+
+              <div className="bg-bg-dark-end border border-neon-purple/25 rounded-2xl overflow-hidden">
+                <div className="px-5 py-4 border-b border-neon-purple/20 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <Crown className="w-4 h-4 text-neon-purple" />
+                    <h3 className="text-white font-semibold text-sm">ReportCard Studio plans</h3>
+                  </div>
+                  <button
+                    onClick={() => void loadSubscriptions()}
+                    disabled={subscriptionBusy}
+                    className="flex items-center gap-2 px-3 py-1.5 border border-neon-purple/30 rounded-lg text-gray-300 text-xs hover:bg-white/5 disabled:opacity-50"
+                  >
+                    <RotateCcw className={`w-3.5 h-3.5 ${subscriptionBusy ? 'animate-spin' : ''}`} />
+                    Refresh
+                  </button>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-white/5">
+                      <tr>
+                        {['Subscriber', 'Plan', 'Cost', 'Started', 'Expires', 'Status', 'Free used', 'Actions'].map(
+                          (heading) => (
+                            <th
+                              key={heading}
+                              className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider whitespace-nowrap"
+                            >
+                              {heading}
+                            </th>
+                          ),
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-neon-purple/10">
+                      {subscriptions.map((sub) => (
+                        <tr key={sub.email} className="hover:bg-white/5">
+                          <td className="px-4 py-3">
+                            <div className="text-white text-sm">{sub.name || '—'}</div>
+                            <div className="text-gray-500 text-xs">{sub.email}</div>
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="text-white text-sm whitespace-nowrap">{sub.planName}</div>
+                            {sub.adminGranted && (
+                              <div className="text-purple-300 text-[11px]">Admin (comp)</div>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-white text-sm whitespace-nowrap">
+                            ₹{sub.priceInr.toLocaleString('en-IN')}
+                          </td>
+                          <td className="px-4 py-3 text-gray-400 text-sm whitespace-nowrap">
+                            {new Date(sub.startedAt).toLocaleDateString()}
+                          </td>
+                          <td className="px-4 py-3 text-gray-400 text-sm whitespace-nowrap">
+                            {new Date(sub.expiresAt).toLocaleDateString()}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            {sub.status === 'active' && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-green-500/15 text-green-300 px-2.5 py-1 text-[11px] font-semibold">
+                                Active · {sub.daysLeft}d left
+                              </span>
+                            )}
+                            {sub.status === 'expiring' && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-yellow-500/15 text-yellow-200 px-2.5 py-1 text-[11px] font-semibold">
+                                Expiring · {sub.daysLeft}d
+                              </span>
+                            )}
+                            {sub.status === 'expired' && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-red-500/15 text-red-300 px-2.5 py-1 text-[11px] font-semibold">
+                                Expired
+                              </span>
+                            )}
+                            {sub.status === 'cancelled' && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-gray-500/15 text-gray-300 px-2.5 py-1 text-[11px] font-semibold">
+                                Cancelled
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-gray-300 text-sm">{sub.freeUsed}</td>
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => void handleSubscriptionAction('renew', sub.email)}
+                                disabled={subscriptionBusy}
+                                className="text-neon-purple hover:text-purple-300 text-xs font-semibold disabled:opacity-50"
+                              >
+                                Renew
+                              </button>
+                              {sub.status !== 'cancelled' && (
+                                <button
+                                  onClick={() => void handleSubscriptionAction('cancel', sub.email)}
+                                  disabled={subscriptionBusy}
+                                  className="text-red-400 hover:text-red-300 text-xs font-semibold disabled:opacity-50"
+                                >
+                                  Turn off
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {subscriptions.length === 0 && (
+                        <tr>
+                          <td colSpan={8} className="px-5 py-10 text-center text-gray-500 text-sm">
+                            {subscriptionBusy ? 'Loading subscriptions…' : 'No ReportCard Studio subscriptions yet.'}
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="bg-bg-dark-end border border-neon-purple/25 rounded-2xl overflow-hidden">
+                <div className="px-5 py-4 border-b border-neon-purple/20 flex items-center gap-2">
+                  <Mail className="w-4 h-4 text-neon-purple" />
+                  <h3 className="text-white font-semibold text-sm">Recent billing &amp; plan emails</h3>
+                </div>
+                <div className="divide-y divide-neon-purple/10 max-h-80 overflow-y-auto">
+                  {subscriptionEmails.map((entry, index) => (
+                    <div key={`${entry.to_email}-${index}`} className="px-5 py-3 flex flex-wrap items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="text-white text-sm truncate">{entry.subject || entry.template}</div>
+                        <div className="text-gray-500 text-xs truncate">
+                          {entry.to_email} · {entry.template}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0">
+                        <span
+                          className={`text-[11px] font-semibold ${
+                            entry.status === 'sent' ? 'text-green-400' : entry.status === 'skipped' ? 'text-yellow-300' : 'text-red-400'
+                          }`}
+                        >
+                          {entry.status}
+                        </span>
+                        <span className="text-gray-500 text-xs">
+                          {new Date(entry.created_at).toLocaleString()}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                  {subscriptionEmails.length === 0 && (
+                    <div className="px-5 py-8 text-center text-gray-500 text-sm">No emails sent yet.</div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1473,3 +1896,38 @@ const StatCard: React.FC<{ label: string; value: string; icon: React.ReactNode }
     <div className="text-xs text-gray-400 mt-0.5">{label}</div>
   </div>
 );
+
+/** Horizontal bar list used by the Audience tab (countries / cities / pages). */
+const BreakdownCard: React.FC<{
+  title: string;
+  icon: React.ReactNode;
+  rows: { name: string; count: number }[];
+  empty: string;
+}> = ({ title, icon, rows, empty }) => {
+  const max = rows.reduce((m, row) => Math.max(m, row.count), 0) || 1;
+  return (
+    <div className="bg-bg-dark-end border border-neon-purple/25 rounded-2xl overflow-hidden">
+      <div className="px-5 py-3 border-b border-neon-purple/20 flex items-center gap-2">
+        {icon}
+        <h3 className="font-semibold text-white text-sm">{title}</h3>
+      </div>
+      <div className="p-5 space-y-3">
+        {rows.length === 0 && <p className="text-sm text-gray-500">{empty}</p>}
+        {rows.map((row) => (
+          <div key={row.name}>
+            <div className="flex items-center justify-between text-sm mb-1">
+              <span className="text-gray-300 truncate pr-2">{row.name}</span>
+              <span className="text-gray-500 tabular-nums shrink-0">{row.count}</span>
+            </div>
+            <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-neon-purple rounded-full"
+                style={{ width: `${Math.round((row.count / max) * 100)}%` }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};

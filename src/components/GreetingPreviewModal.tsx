@@ -1,5 +1,6 @@
+import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Eye, Lock, Sparkles, ArrowRight, ShieldCheck } from 'lucide-react';
+import { X, Eye, Lock, Sparkles, ArrowRight, ShieldCheck, Volume2, VolumeX } from 'lucide-react';
 import { GreetingTheme } from '../types';
 import { GreetingCardVisual } from './GreetingCardVisual';
 import { TIER_LABELS, TIER_TAGLINES } from '../data/greetingThemes';
@@ -34,6 +35,13 @@ interface GreetingPreviewModalProps {
   eyebrow?: string;
   /** Optional sender-authored sign-off. */
   signoff?: string;
+  /**
+   * Background music to audition in the preview — the uploaded MP3 (Premium /
+   * Elite) or the selected stock track. Opening the preview is a user gesture,
+   * so playback starts automatically where the browser allows it; the speaker
+   * button is always available as the fallback/toggle.
+   */
+  audioTrack?: string;
   /** CTA label, e.g. "Publish & get link · <price in the visitor's currency>". */
   ctaLabel: string;
   /** Kicks off payment (or admin free generation). No card exists yet. */
@@ -69,12 +77,53 @@ export const GreetingPreviewModal: React.FC<GreetingPreviewModalProps> = ({
   title,
   eyebrow,
   signoff,
+  audioTrack,
   ctaLabel,
   onPublish,
   isAdmin = false,
   watermarkName = 'Ishmaverse',
 }) => {
   const font = getFontById(fontId);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [musicOn, setMusicOn] = useState(false);
+
+  // Start the music when the preview opens and stop it on close/unmount.
+  useEffect(() => {
+    if (!isOpen || !audioTrack) {
+      audioRef.current?.pause();
+      audioRef.current = null;
+      setMusicOn(false);
+      return;
+    }
+
+    const audio = new Audio(audioTrack);
+    audio.loop = true;
+    audio.volume = 0.7;
+    audioRef.current = audio;
+    audio
+      .play()
+      .then(() => setMusicOn(true))
+      .catch(() => setMusicOn(false));
+
+    return () => {
+      audio.pause();
+      audioRef.current = null;
+    };
+  }, [isOpen, audioTrack]);
+
+  const toggleMusic = () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (audio.paused) {
+      audio
+        .play()
+        .then(() => setMusicOn(true))
+        .catch(() => setMusicOn(false));
+    } else {
+      audio.pause();
+      setMusicOn(false);
+    }
+  };
 
   return (
     <AnimatePresence>
@@ -96,13 +145,27 @@ export const GreetingPreviewModal: React.FC<GreetingPreviewModalProps> = ({
                 {theme.emoji} {theme.name} · {TIER_LABELS[theme.tier]} · {font.label}
               </span>
             </div>
-            <button
-              onClick={onClose}
-              className="text-gray-400 hover:text-white transition-colors shrink-0"
-              aria-label="Close preview"
-            >
-              <X className="w-6 h-6" />
-            </button>
+
+            <div className="flex items-center gap-2 shrink-0">
+              {audioTrack && (
+                <button
+                  type="button"
+                  onClick={toggleMusic}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-semibold text-gray-200 hover:bg-white/10 transition-colors"
+                  aria-label={musicOn ? 'Pause preview music' : 'Play preview music'}
+                >
+                  {musicOn ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+                  <span className="hidden sm:inline">{musicOn ? 'Music on' : 'Music off'}</span>
+                </button>
+              )}
+              <button
+                onClick={onClose}
+                className="text-gray-400 hover:text-white transition-colors"
+                aria-label="Close preview"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
           </div>
 
           {/* Card */}

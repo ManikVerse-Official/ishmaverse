@@ -15,6 +15,15 @@ export const mallSections: MallSection[] = [
     available: true,
   },
   {
+    id: 'reportcard-studio',
+    name: 'ReportCard Studio',
+    emoji: '📊',
+    tagline: 'Generate holistic & academic student report cards from Excel',
+    accent: '#ec4899', // Dark Pink / Fuchsia
+    gradient: 'from-pink-600 via-fuchsia-600 to-rose-700',
+    available: true,
+  },
+  {
     id: 'tech-ai',
     name: 'Tech & AI',
     emoji: '🤖',

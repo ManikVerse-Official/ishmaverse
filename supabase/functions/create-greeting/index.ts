@@ -88,6 +88,18 @@ const ALLOWED_FONTS = new Set([
   "calligraphy",
   "handwritten",
   "playful",
+  "marcellus",
+  "dm-serif",
+  "yeseva",
+  "lora",
+  "josefin",
+  "outfit",
+  "fredoka",
+  "bebas",
+  "satisfy",
+  "kaushan",
+  "parisienne",
+  "permanent-marker",
 ]);
 
 const DEFAULT_FONT = "classic-serif";
@@ -276,12 +288,20 @@ serve(async (req: Request) => {
       clean(body.signoff, 60);
 
 
+    /*
+     * Audio can be a shipped stock track ("/audio/…") or a sender-uploaded MP3
+     * hosted in the public `greeting-audio` bucket (Premium/Elite only). Only
+     * https URLs are accepted so the card never plays an insecure/mixed source.
+     */
+    const rawAudioTrack =
+      typeof body.audio_track === "string"
+        ? body.audio_track.trim()
+        : "";
+
     const audioTrack =
-      typeof body.audio_track === "string" &&
-      body.audio_track.startsWith("/audio/")
-        ? body.audio_track
-            .trim()
-            .slice(0, 200)
+      rawAudioTrack.startsWith("/audio/") ||
+      /^https:\/\//i.test(rawAudioTrack)
+        ? rawAudioTrack.slice(0, 500)
         : null;
 
 

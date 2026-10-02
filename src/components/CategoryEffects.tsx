@@ -137,5 +137,54 @@ export const CategoryEffects: React.FC<CategoryEffectsProps> = ({
     );
   }
 
+  /* --------------------------- Events / Functions -------------------- */
+  /* Aurora Nights and the other 'event' themes previously had no ambience, so
+   * they read as flat/broken next to the animated categories. */
+  if (categoryId === 'event') {
+    const sparks = isElite ? 9 : isPremium ? 6 : 4;
+    return (
+      <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+        {Array.from({ length: sparks }).map((_, i) => (
+          <span
+            key={`event-spark-${i}`}
+            className="card-firework select-none"
+            style={{
+              left: `${8 + rand(i + 2) * 84}%`,
+              top: `${8 + rand(i + 9) * 66}%`,
+              fontSize: `${13 + rand(i + 3) * 16}px`,
+              color: accent,
+              animationDelay: `${rand(i + 11) * 4}s`,
+            }}
+          >
+            {i % 3 === 0 ? '✦' : '✨'}
+          </span>
+        ))}
+      </div>
+    );
+  }
+
+  /* --------------------------- Family & Friends ---------------------- */
+  if (categoryId === 'family') {
+    const petals = isElite ? 10 : isPremium ? 8 : 5;
+    return (
+      <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+        {Array.from({ length: petals }).map((_, i) => (
+          <span
+            key={`family-petal-${i}`}
+            className="card-petal select-none"
+            style={{
+              left: `${5 + i * (90 / petals)}%`,
+              fontSize: `${13 + rand(i + 4) * 11}px`,
+              animationDuration: `${8 + rand(i + 2) * 6}s`,
+              animationDelay: `${-rand(i + 6) * 9}s`,
+            }}
+          >
+            {i % 3 === 0 ? '🌿' : '💛'}
+          </span>
+        ))}
+      </div>
+    );
+  }
+
   return null;
 };

@@ -1,0 +1,116 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  @apply bg-slate-50 text-ink-900 font-sans antialiased;
+  /* Avoid accidental sideways scroll on phones. */
+  overflow-x: hidden;
+}
+
+/*
+ * Report card cells must never clip or overlap text: long names, subject
+ * names and remarks wrap inside their own box instead of spilling into the
+ * neighbouring field.
+ */
+.rc-wrap {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  min-width: 0;
+}
+
+/* Mobile touch targets (Android Chrome / iOS Safari). */
+@media (max-width: 640px) {
+  .btn {
+    min-height: 44px;
+  }
+  .input,
+  select.input,
+  textarea.input {
+    min-height: 44px;
+    /* 16px avoids the automatic zoom-on-focus in mobile browsers. */
+    font-size: 16px;
+  }
+}
+
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-500 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-primary {
+    @apply btn bg-brand-600 text-white hover:bg-brand-700;
+  }
+  .btn-secondary {
+    @apply btn bg-white text-ink-800 border border-slate-200 hover:bg-slate-50;
+  }
+  .btn-ghost {
+    @apply btn text-ink-700 hover:bg-slate-100;
+  }
+  .btn-danger {
+    @apply btn bg-red-600 text-white hover:bg-red-700 focus:ring-red-500;
+  }
+  .input {
+    @apply w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-ink-900 placeholder:text-ink-500 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500;
+  }
+  .label {
+    @apply block text-sm font-medium text-ink-800 mb-1;
+  }
+  .card {
+    @apply bg-white rounded-xl border border-slate-200 shadow-card;
+  }
+  .card-header {
+    @apply px-6 py-4 border-b border-slate-100;
+  }
+  .card-body {
+    @apply px-6 py-4;
+  }
+  .table {
+    @apply w-full text-sm;
+  }
+  .table th {
+    @apply text-left font-semibold text-ink-700 px-3 py-2 bg-slate-50 border-b border-slate-200;
+  }
+  .table td {
+    @apply px-3 py-2 border-b border-slate-100 text-ink-800;
+  }
+  .table tr:hover td {
+    @apply bg-slate-50/60;
+  }
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium;
+  }
+  .badge-success {
+    @apply badge bg-emerald-50 text-emerald-700 border border-emerald-200;
+  }
+  .badge-warning {
+    @apply badge bg-amber-50 text-amber-800 border border-amber-200;
+  }
+  .badge-error {
+    @apply badge bg-red-50 text-red-700 border border-red-200;
+  }
+  .badge-info {
+    @apply badge bg-brand-50 text-brand-700 border border-brand-200;
+  }
+  .step-badge {
+    @apply flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold;
+  }
+}
+
+@media print {
+  body { background: white; }
+  .no-print { display: none !important; }
+}

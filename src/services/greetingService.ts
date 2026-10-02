@@ -245,6 +245,43 @@ export const createGreetingCard = async (
   return { card: payload };
 };
 
+/**
+ * Creates the single FREE basic card through `create-free-greeting`.
+ *
+ * No payment is involved. The server enforces the free-use limits (one free
+ * card per email, at most two per IP) before minting the card, so a user cannot
+ * reset the limit by clearing their browser.
+ */
+export const createFreeGreetingCard = async (
+  input: Omit<CreateGreetingInput, 'payment' | 'currency'>,
+): Promise<CreateGreetingResult> => {
+  if (isSupabaseConfigured()) {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    const { data, error } = await supabase.functions.invoke('create-free-greeting', {
+      body: { ...input },
+      headers: session?.access_token
+        ? { Authorization: `Bearer ${session.access_token}` }
+        : undefined,
+    });
+
+    if (error) throw new Error(await readFunctionError(error));
+    if (!data?.success || !data.card) {
+      throw new Error(data?.error ?? 'Could not create your free card');
+    }
+
+    return {
+      card: data.card as GreetingCard,
+      transaction: data.transaction as Transaction | undefined,
+    };
+  }
+
+  // Without a backend the free path uses the same local, dev-only fallback.
+  return createGreetingCard(input);
+};
+
 export interface ReceiptResult {
   receipt: Receipt;
   /** Self-contained printable HTML document. */

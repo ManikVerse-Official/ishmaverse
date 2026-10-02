@@ -62,6 +62,42 @@ export const greetingCategories: GreetingThemeCategory[] = [
 ];
 
 export const greetingThemes: GreetingTheme[] = [
+  /* ======================= FREE WELCOME CARD ======================== */
+  /*
+   * The one card a first-time visitor can send for free. Price 0 marks it as
+   * the free theme; the storefront shows a FREE badge and the builder routes it
+   * to the `create-free-greeting` Edge Function (which enforces the free-use
+   * limits) instead of the payment flow.
+   *
+   * It is deliberately the FIRST entry in the catalog so every visitor sees the
+   * free welcome card at the very top of the storefront the moment it opens.
+   */
+  {
+    id: 'free-basic-wish',
+    category_id: 'event',
+    name: 'Free Welcome Card',
+    tagline: 'A free card to say thank you — try Ishmaverse on us',
+    price: 0,
+    price_usd: 0,
+    tier: 'basic',
+    emoji: '💌',
+    accent: '#38bdf8',
+    gradient: 'from-sky-400 via-cyan-400 to-blue-500',
+    animation: 'sparkles',
+    tags: ['free', 'welcome', 'thank you', 'basic', 'simple', 'gift', 'thanks'],
+    design: {
+      surface: ['#0c2340', '#1d4ed8'],
+      ink: '#e6f0ff',
+      inkSoft: '#93c5fd',
+      border: 'rgba(56,189,248,0.5)',
+      glow: 'rgba(56,189,248,0.4)',
+      frame: 'soft',
+      motion: 'fade',
+      ornaments: ['💌'],
+      defaultFont: 'modern-sans',
+    },
+  },
+
   /* ============================ ROMANTIC ============================ */
   {
     id: 'romantic-rose-note',
@@ -779,6 +815,7 @@ export const greetingThemes: GreetingTheme[] = [
       defaultFont: 'romantic-script',
     },
   },
+
 ];
 
 /** Legacy cards stored only 'Birthday' / 'Valentine' throttle. */
@@ -828,6 +865,20 @@ export const TIER_ORNAMENT_COUNT: Record<GreetingTier, number> = {
   plus: 1,
   premium: 2,
   elite: 3,
+};
+
+/** Id of the single free welcome card (always sorted to the top of the list). */
+export const FREE_THEME_ID = 'free-basic-wish';
+
+/**
+ * Puts the free welcome card first and keeps every other theme in its current
+ * order. Applied everywhere themes are listed so the free card can never be
+ * pushed down by admin patches, custom themes or catalog sync order.
+ */
+export const sortFreeThemeFirst = (themes: GreetingTheme[]): GreetingTheme[] => {
+  const free = themes.filter((theme) => theme.id === FREE_THEME_ID);
+  if (free.length === 0) return themes;
+  return [...free, ...themes.filter((theme) => theme.id !== FREE_THEME_ID)];
 };
 
 export const getThemeById = (

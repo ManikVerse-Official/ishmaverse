@@ -14,6 +14,7 @@ import {
   RefreshCw,
   Download,
   Mail,
+  Crop,
 } from 'lucide-react';
 import { GreetingTheme, PaymentProof, Product } from '../types';
 import { useGreeting } from '../context/GreetingContext';
@@ -21,6 +22,7 @@ import { CheckoutModal } from './CheckoutModal';
 import { GreetingCardVisual } from './GreetingCardVisual';
 import { GreetingPreviewModal } from './GreetingPreviewModal';
 import { PhotoFrame } from './PhotoFrame';
+import { ImageCropper, type CropResult } from './ImageCropper';
 import { greetingFonts, getFontById, DEFAULT_FONT_ID } from '../data/fonts';
 import { themePriceForRegion } from '../services/catalog';
 import { useCurrency } from '../context/CurrencyContext';
@@ -28,11 +30,19 @@ import {
   buildGreetingUrl,
   buildManageUrl,
   createGreetingCard,
+  createFreeGreetingCard,
   fetchReceipt,
   formatCountdown,
   isPaymentDemoMode,
 } from '../services/greetingService';
 import { clearPendingGreeting, type PendingGreeting } from '../services/pendingCheckout';
+import {
+  uploadGreetingAudio,
+  isMp3File,
+  formatBytes,
+  MAX_GREETING_AUDIO_BYTES,
+} from '../services/greetingAudio';
+import { sendPurchaseEmail } from '../services/notify';
 import { TIER_LABELS, TIER_TAGLINES } from '../data/greetingThemes';
 import {
   AUDIO_TRACKS_BY_CATEGORY,
@@ -82,6 +92,17 @@ export const ThemeOrderModal: React.FC<ThemeOrderModalProps> = ({ theme, isOpen,
   const [selectedAudioTrack, setSelectedAudioTrack] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  // The untouched upload, kept so the sender can re-open the cropper any time.
+  const [originalImageSrc, setOriginalImageSrc] = useState<string | null>(null);
+  // Non-null while the interactive crop/pan tool is open.
+  const [cropSrc, setCropSrc] = useState<string | null>(null);
+  // Custom background music (Premium & Elite): local file, preview URL and the
+  // hosted URL returned once the upload finishes.
+  const [customAudioFile, setCustomAudioFile] = useState<File | null>(null);
+  const [customAudioPreview, setCustomAudioPreview] = useState<string | null>(null);
+  const [customAudioTrack, setCustomAudioTrack] = useState('');
+  const [isUploadingAudio, setIsUploadingAudio] = useState(false);
+  const [audioError, setAudioError] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
@@ -139,6 +160,13 @@ export const ThemeOrderModal: React.FC<ThemeOrderModalProps> = ({ theme, isOpen,
       setSelectedAudioTrack(null);
       setImageFile(null);
       setImagePreview(null);
+      setOriginalImageSrc(null);
+      setCropSrc(null);
+      setCustomAudioFile(null);
+      setCustomAudioPreview(null);
+      setCustomAudioTrack('');
+      setIsUploadingAudio(false);
+      setAudioError('');
       setIsPreviewOpen(false);
       setIsPaymentOpen(false);
       setCardLink('');
@@ -165,6 +193,9 @@ export const ThemeOrderModal: React.FC<ThemeOrderModalProps> = ({ theme, isOpen,
 
   const remainingMs = expiresAt ? Math.max(0, expiresAt.getTime() - now.getTime()) : 0;
   const displayPrice = checkoutProduct?.price ?? theme.price;
+  // Price 0 marks the free welcome card — it skips the payment flow entirely
+  // and is created through the free-use-limited `create-free-greeting` function.
+  const isFreeTheme = theme.price === 0 && theme.price_usd === 0;
 
   const isDetailsValid =
     details.sender.trim().length > 0 &&
@@ -174,10 +205,75 @@ export const ThemeOrderModal: React.FC<ThemeOrderModalProps> = ({ theme, isOpen,
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setImageFile(file);
     const reader = new FileReader();
-    reader.onloadend = () => setImagePreview(reader.result as string);
+    reader.onloadend = () => {
+      const dataUrl = reader.result as string;
+      // Always send the raw upload through the crop/pan tool first so faces are
+      // never cut off by the card's fixed aspect ratio.
+      setOriginalImageSrc(dataUrl);
+      setCropSrc(dataUrl);
+    };
     reader.readAsDataURL(file);
+    // Allow re-selecting the same file (re-opens the cropper).
+    e.target.value = '';
+  };
+
+  /** Applies the sender's chosen crop as both the preview and the upload. */
+  const handleCropApply = ({ dataUrl, file }: CropResult) => {
+    setImageFile(file);
+    setImagePreview(dataUrl);
+    setCropSrc(null);
+  };
+
+  /** Clears the stock selection and any uploaded custom song. */
+  const clearCustomAudio = () => {
+    setSelectedAudioTrack(null);
+    setCustomAudioFile(null);
+    setCustomAudioTrack('');
+    setAudioError('');
+    setCustomAudioPreview((prev) => {
+      if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev);
+      return null;
+    });
+  };
+
+  /**
+   * Handles the sender's own MP3 (Premium & Elite). The file is validated and
+   * uploaded right away, so by the time they reach checkout the hosted URL is
+   * ready and nothing large sits in the payment redirect payload.
+   */
+  const handleCustomAudioChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    setAudioError('');
+
+    if (!isMp3File(file)) {
+      setAudioError('Please choose an MP3 (.mp3) file.');
+      return;
+    }
+    if (file.size > MAX_GREETING_AUDIO_BYTES) {
+      setAudioError(`Audio must be ${formatBytes(MAX_GREETING_AUDIO_BYTES)} or smaller.`);
+      return;
+    }
+
+    setSelectedAudioTrack(null);
+    setCustomAudioFile(file);
+    setCustomAudioTrack('');
+    setCustomAudioPreview((prev) => {
+      if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev);
+      return URL.createObjectURL(file);
+    });
+
+    setIsUploadingAudio(true);
+    try {
+      const url = await uploadGreetingAudio(file);
+      setCustomAudioTrack(url);
+    } catch (error) {
+      setAudioError(error instanceof Error ? error.message : 'Could not upload your music.');
+    } finally {
+      setIsUploadingAudio(false);
+    }
   };
 
   const uploadImage = async (file: File): Promise<string> => {
@@ -231,7 +327,7 @@ export const ThemeOrderModal: React.FC<ThemeOrderModalProps> = ({ theme, isOpen,
       title: title.trim() || undefined,
       eyebrow: eyebrow.trim() || undefined,
       signoff: signoff.trim() || undefined,
-      audio_track: selectedAudioTrack || undefined,
+      audio_track: customAudioTrack || selectedAudioTrack || undefined,
       external_image_url: imageUrl,
       client_email: customerEmail,
       currency: 'USD',
@@ -243,10 +339,7 @@ export const ThemeOrderModal: React.FC<ThemeOrderModalProps> = ({ theme, isOpen,
     try {
       const imageUrl = imageFile ? await uploadImage(imageFile) : imagePreview || '';
 
-      // The Edge Function is the authority here: it verifies admin status from
-      // the session JWT (or the payment with the gateway) before writing the
-      // card and its ledger row. The client cannot mint a paid card for free.
-      const { card, transaction } = await createGreetingCard({
+      const cardInput = {
         sender_name: details.sender.trim(),
         receiver_name: details.receiver.trim(),
         message: details.message.trim(),
@@ -262,23 +355,59 @@ export const ThemeOrderModal: React.FC<ThemeOrderModalProps> = ({ theme, isOpen,
         title: title.trim() || undefined,
         eyebrow: eyebrow.trim() || undefined,
         signoff: signoff.trim() || undefined,
-        audio_track: selectedAudioTrack || undefined,
+        audio_track: customAudioTrack || selectedAudioTrack || undefined,
         external_image_url: imageUrl,
         client_email: customerEmail,
-        currency: isIndiaRegion ? 'INR' : 'USD',
-        payment,
-      });
+      };
+
+      // The Edge Function is the authority: it verifies admin status from the
+      // session JWT (or the payment with the gateway) before writing the card
+      // and its ledger row. The free welcome card instead goes through
+      // `create-free-greeting`, which enforces the per-email/per-IP free limit.
+      const { card, transaction } = isFreeTheme
+        ? await createFreeGreetingCard(cardInput)
+        : await createGreetingCard({
+            ...cardInput,
+            currency: isIndiaRegion ? 'INR' : 'USD',
+            payment,
+          });
 
       setCardLink(buildGreetingUrl(card.id));
       setManagementToken(card.management_token ?? '');
       setExpiresAt(card.expires_at ? new Date(card.expires_at) : null);
 
       // Issue a printable receipt for paid cards.
-      if (!isAdmin && transaction?.payment_id) {
+      if (!isFreeTheme && transaction?.payment_id) {
         const result = await fetchReceipt(transaction.payment_id);
         setReceiptHtml(result?.html ?? '');
         setReceiptNumber(result?.receipt.receipt_number ?? '');
         setReceiptEmailed(Boolean(result?.emailed));
+      }
+
+      /*
+       * Thank-you + professional bill — sent on EVERY order, including admin
+       * comps and the free welcome card.
+       *
+       *  • the bill always shows a Cost line: the product's real price, or
+       *    ₹0.00 for a genuinely free card — never the word "free";
+       *  • an admin comp is billed at the list price, so the receipt stays
+       *    professional even though nothing was charged;
+       *  • the owner automatically receives a copy from the send-email function.
+       *
+       * If the buyer left no email, the bill is addressed to the store owner so
+       * the record is never lost.
+       */
+      const billingEmail = customerEmail || (import.meta.env.VITE_ADMIN_EMAIL as string) || '';
+      if (billingEmail) {
+        void sendPurchaseEmail(billingEmail, {
+          name: details.sender.trim(),
+          productName: `${theme.name} — Digital Greeting Card`,
+          amount: isFreeTheme ? '0' : String(displayPrice),
+          currency: isIndiaRegion ? 'INR' : 'USD',
+          paymentId: transaction?.payment_id ?? '',
+          orderDate: new Date().toDateString(),
+          cardUrl: buildGreetingUrl(card.id),
+        });
       }
 
       setCreateError('');
@@ -301,11 +430,12 @@ export const ThemeOrderModal: React.FC<ThemeOrderModalProps> = ({ theme, isOpen,
   };
 
   const handlePrimaryAction = async () => {
-    if (!isDetailsValid) return;
+    if (!isDetailsValid || isUploadingAudio) return;
 
     setCustomerName(details.sender.trim());
 
-    if (isAdmin) {
+    // Admins and the free welcome card skip payment entirely.
+    if (isAdmin || isFreeTheme) {
       try {
         await generateCard();
       } catch {
@@ -381,7 +511,7 @@ export const ThemeOrderModal: React.FC<ThemeOrderModalProps> = ({ theme, isOpen,
                   </div>
                   <div className="text-right shrink-0">
                     <div className="text-xl font-black text-neon-purple">
-                      {isAdmin ? 'FREE' : `${currencySymbol}${displayPrice}`}
+                      {isAdmin || isFreeTheme ? 'FREE' : `${currencySymbol}${displayPrice}`}
                     </div>
                     <div className="text-[10px] uppercase tracking-wider text-gray-500">
                       {TIER_LABELS[theme.tier]}
@@ -448,22 +578,53 @@ export const ThemeOrderModal: React.FC<ThemeOrderModalProps> = ({ theme, isOpen,
                     </div>
 
                     <div>
-                      <label className="block text-sm font-semibold text-gray-300 mb-2">
-                        Typography
-                      </label>
-                      <select
-                        value={fontId}
-                        onChange={(e) => setFontId(e.target.value)}
-                        className="w-full bg-bg-dark-start border border-neon-purple/30 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-neon-purple transition-colors"
-                      >
-                        {greetingFonts.map((font) => (
-                          <option key={font.id} value={font.id} style={{ fontFamily: font.family }}>
-                            {font.label} — {font.sample}
-                          </option>
-                        ))}
-                      </select>
-                      <p className="text-[11px] text-gray-500 mt-1">
-                        Best for: {getFontById(fontId).mood}
+                      <div className="flex items-center justify-between mb-2">
+                        <label className="block text-sm font-semibold text-gray-300">
+                          Typography
+                        </label>
+                        <span className="text-[11px] text-gray-500">
+                          {greetingFonts.length} styles · previewed live
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-72 overflow-y-auto pr-1">
+                        {greetingFonts.map((font) => {
+                          const active = font.id === fontId;
+                          return (
+                            <button
+                              key={font.id}
+                              type="button"
+                              onClick={() => setFontId(font.id)}
+                              title={font.mood}
+                              aria-pressed={active}
+                              className={`text-left rounded-xl border px-3 py-3 transition-all ${
+                                active
+                                  ? 'border-neon-purple bg-neon-purple/10 ring-1 ring-neon-purple/60'
+                                  : 'border-neon-purple/25 bg-bg-dark-start hover:border-neon-purple/60'
+                              }`}
+                            >
+                              {/* The sample renders in the font itself, so the look is
+                               * visible while choosing (not only after applying). */}
+                              <span
+                                className="block text-lg leading-snug text-white truncate"
+                                style={{ fontFamily: font.family }}
+                              >
+                                {font.sample}
+                              </span>
+                              <span className="mt-1 flex items-center justify-between gap-2">
+                                <span className="text-[10px] uppercase tracking-wider text-gray-400 truncate">
+                                  {font.label}
+                                </span>
+                                {active && <Check className="w-3.5 h-3.5 text-neon-purple shrink-0" />}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <p className="text-[11px] text-gray-500 mt-2">
+                        <span className="text-gray-300 font-semibold">
+                          {getFontById(fontId).label}
+                        </span>{' '}
+                        — best for: {getFontById(fontId).mood}
                       </p>
                     </div>
 
@@ -673,44 +834,139 @@ export const ThemeOrderModal: React.FC<ThemeOrderModalProps> = ({ theme, isOpen,
                           <span className="text-sm font-semibold text-gray-300">
                             Audio <span className="text-gray-500 font-normal">(optional)</span>
                           </span>
-                          {selectedAudioTrack && (
+                          {(selectedAudioTrack || customAudioFile || customAudioTrack) && (
                             <button
                               type="button"
-                              onClick={() => setSelectedAudioTrack(null)}
+                              onClick={clearCustomAudio}
                               className="text-[11px] font-semibold text-neon-purple hover:text-purple-300 transition-colors"
                             >
                               Clear audio
                             </button>
-                          )
-                          }
+                          )}
                         </div>
                         {isAudioTier(theme.tier) ? (
-                          <label className="flex flex-col gap-1 bg-bg-dark-start border border-neon-purple/30 rounded-xl px-4 py-3 cursor-pointer">
-                            <span className="text-sm text-gray-300">
-                              {tierAudioLabel[theme.tier as AudioTier]}
-                            </span>
-                            <select
-                              value={selectedAudioTrack || ''}
-                              onChange={(e) => setSelectedAudioTrack(e.target.value)}
-                              className="w-full bg-bg-dark-end border border-neon-purple/30 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-neon-purple transition-colors"
-                            >
-                              <option value="">No audio track</option>
-                              {Object.entries(AUDIO_TRACKS_BY_CATEGORY).map(([categoryId, path]) => {
-                                const label = categoryId
-                                  .split('_')
-                                  .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-                                  .join(' ');
-                                return (
-                                  <option key={path} value={path}>
-                                    {label} — {path.split('/').pop()}
-                                  </option>
-                                );
-                              })}
-                              <option value={DEFAULT_AUDIO_TRACKS}>
-                                Default — {DEFAULT_AUDIO_TRACKS.split('/').pop()}
-                              </option>
-                            </select>
-                          </label>
+                          <>
+                            <label className="flex flex-col gap-1 bg-bg-dark-start border border-neon-purple/30 rounded-xl px-4 py-3 cursor-pointer">
+                              <span className="text-sm text-gray-300">
+                                {tierAudioLabel[theme.tier as AudioTier]}
+                              </span>
+                              <select
+                                value={selectedAudioTrack || ''}
+                                onChange={(e) => setSelectedAudioTrack(e.target.value)}
+                                className="w-full bg-bg-dark-end border border-neon-purple/30 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-neon-purple transition-colors"
+                              >
+                                <option value="">No audio track</option>
+                                {Object.entries(AUDIO_TRACKS_BY_CATEGORY).map(([categoryId, path]) => {
+                                  const label = categoryId
+                                    .split('_')
+                                    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+                                    .join(' ');
+                                  return (
+                                    <option key={path} value={path}>
+                                      {label} — {path.split('/').pop()}
+                                    </option>
+                                  );
+                                })}
+                                <option value={DEFAULT_AUDIO_TRACKS}>
+                                  Default — {DEFAULT_AUDIO_TRACKS.split('/').pop()}
+                                </option>
+                              </select>
+                            </label>
+
+                            {/* Upload your own MP3 — Premium & Elite only. */}
+                            <div className="bg-bg-dark-start border border-neon-purple/30 rounded-xl px-4 py-3 space-y-3">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-sm text-gray-300">
+                                  Or upload your own song
+                                  <span className="block text-[11px] text-gray-500">
+                                    Premium &amp; Elite · .mp3 up to {formatBytes(MAX_GREETING_AUDIO_BYTES)}
+                                  </span>
+                                </span>
+                                {isUploadingAudio && (
+                                  <span className="inline-flex items-center gap-1 text-[11px] text-neon-purple shrink-0">
+                                    <Loader2 className="w-3 h-3 animate-spin" /> Uploading…
+                                  </span>
+                                )}
+                              </div>
+
+                              <div
+                                onClick={() => document.getElementById('custom-audio-input')?.click()}
+                                className="border border-dashed border-neon-purple/30 rounded-lg px-3 py-3 text-center cursor-pointer hover:border-neon-purple transition-colors"
+                              >
+                                {customAudioFile ? (
+                                  <span className="text-xs text-neon-purple">
+                                    {customAudioFile.name} · Click to replace
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-2 text-sm text-gray-400">
+                                    <Upload className="w-4 h-4" />
+                                    Choose an .mp3 from your device
+                                  </span>
+                                )}
+                                <input
+                                  id="custom-audio-input"
+                                  type="file"
+                                  accept="audio/mpeg,.mp3"
+                                  onChange={handleCustomAudioChange}
+                                  className="hidden"
+                                />
+                              </div>
+
+                              {audioError && (
+                                <p className="text-[11px] text-red-300">{audioError}</p>
+                              )}
+
+                              {customAudioPreview && (
+                                <audio
+                                  key={customAudioPreview}
+                                  src={customAudioPreview}
+                                  controls
+                                  preload="metadata"
+                                  className="w-full h-9"
+                                >
+                                  Your browser does not support audio playback.
+                                </audio>
+                              )}
+
+                              <p className="text-[11px] text-gray-500">
+                                Your song plays when the card is opened and takes priority over the
+                                stock track above.
+                              </p>
+                            </div>
+
+                            {/* Preview the chosen stock track before publishing. The player is
+                             * keyed on the track so switching selection reloads it. */}
+                            {selectedAudioTrack && !customAudioFile && (
+                              <div className="bg-bg-dark-start border border-neon-purple/30 rounded-xl px-4 py-3">
+                                <div className="flex items-center justify-between mb-2">
+                                  <span className="text-xs text-gray-300 font-semibold">
+                                    Preview track
+                                  </span>
+                                  <a
+                                    href={selectedAudioTrack}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="text-[11px] text-neon-purple hover:text-purple-300"
+                                  >
+                                    Open in new tab
+                                  </a>
+                                </div>
+                                <audio
+                                  key={selectedAudioTrack}
+                                  src={selectedAudioTrack}
+                                  controls
+                                  preload="none"
+                                  className="w-full h-9"
+                                >
+                                  Your browser does not support audio playback.
+                                </audio>
+                                <p className="text-[11px] text-gray-500 mt-2">
+                                  Press play to hear this track — you can change it any time before
+                                  paying.
+                                </p>
+                              </div>
+                            )}
+                          </>
                         ) : (
                           <div className="bg-bg-dark-start border border-gray-700/40 rounded-xl px-4 py-3 text-sm text-gray-400">
                             {theme.tier === 'basic'
@@ -743,6 +999,17 @@ export const ThemeOrderModal: React.FC<ThemeOrderModalProps> = ({ theme, isOpen,
                               />
                             </div>
                             <div className="mt-2 text-neon-purple text-xs">Click to change</div>
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setCropSrc(originalImageSrc || imagePreview);
+                              }}
+                              className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neon-purple/50 text-neon-purple text-xs font-semibold hover:bg-neon-purple/10 transition-all"
+                            >
+                              <Crop className="w-3.5 h-3.5" />
+                              Adjust crop
+                            </button>
                           </div>
                         ) : (
                           <div className="flex items-center justify-center gap-2 text-gray-400 text-sm py-2">
@@ -827,7 +1094,7 @@ export const ThemeOrderModal: React.FC<ThemeOrderModalProps> = ({ theme, isOpen,
                       <button
                         type="button"
                         onClick={() => setIsPreviewOpen(true)}
-                        disabled={!isDetailsValid || isGenerating}
+                        disabled={!isDetailsValid || isGenerating || isUploadingAudio}
                         className="flex items-center justify-center gap-2 px-6 py-4 rounded-xl border border-neon-purple/50 text-neon-purple font-bold hover:bg-neon-purple/10 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                       >
                         <Eye className="w-5 h-5" />
@@ -836,7 +1103,7 @@ export const ThemeOrderModal: React.FC<ThemeOrderModalProps> = ({ theme, isOpen,
 
                       <button
                         onClick={handlePrimaryAction}
-                        disabled={!isDetailsValid || isGenerating}
+                        disabled={!isDetailsValid || isGenerating || isUploadingAudio}
                         className="flex-1 group relative disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         <div className="absolute inset-0 bg-gradient-to-r from-neon-purple via-purple-500 to-neon-purple rounded-xl blur opacity-50 group-hover:opacity-100 transition duration-300" />
@@ -846,9 +1113,9 @@ export const ThemeOrderModal: React.FC<ThemeOrderModalProps> = ({ theme, isOpen,
                               <Loader2 className="w-5 h-5 animate-spin" />
                               Generating...
                             </>
-                          ) : isAdmin ? (
+                          ) : isAdmin || isFreeTheme ? (
                             <>
-                              Generate Free Card
+                              {isAdmin ? 'Generate Free Card' : 'Publish Free Card'}
                               <ArrowRight className="w-5 h-5" />
                             </>
                           ) : (
@@ -861,7 +1128,12 @@ export const ThemeOrderModal: React.FC<ThemeOrderModalProps> = ({ theme, isOpen,
                       </button>
                     </div>
 
-                    {!isAdmin && (
+                    {isFreeTheme && !isAdmin && (
+                      <p className="text-[11px] text-emerald-300/80 text-center">
+                        This welcome card is free — one free card per email (max two per network).
+                      </p>
+                    )}
+                    {!isAdmin && !isFreeTheme && (
                       <p className="text-[11px] text-gray-500 text-center">
                         Your 48-hour live link is issued immediately after payment. UPI and cards
                         within India; PayPal elsewhere.
@@ -1028,15 +1300,26 @@ export const ThemeOrderModal: React.FC<ThemeOrderModalProps> = ({ theme, isOpen,
         title={title || undefined}
         eyebrow={eyebrow || undefined}
         signoff={signoff || undefined}
+        audioTrack={customAudioPreview || customAudioTrack || selectedAudioTrack || undefined}
         isAdmin={isAdmin}
         ctaLabel={
-          isAdmin ? 'Generate free card' : `Publish & get link · ${currencySymbol}${displayPrice}`
+          isAdmin || isFreeTheme
+            ? 'Publish free card'
+            : `Publish & get link · ${currencySymbol}${displayPrice}`
         }
         onPublish={() => {
           setIsPreviewOpen(false);
           void handlePrimaryAction();
         }}
       />
+
+      {cropSrc && (
+        <ImageCropper
+          src={cropSrc}
+          onCancel={() => setCropSrc(null)}
+          onApply={handleCropApply}
+        />
+      )}
     </>
   );
 };

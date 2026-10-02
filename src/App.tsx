@@ -1,6 +1,7 @@
 import { Suspense, lazy } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import { Home } from './pages/Home';
+import { VisitTracker } from './components/VisitTracker';
 import { getSubdomainCardId } from './services/greetingService';
 
 /**
@@ -30,6 +31,8 @@ const CreateGreeting = lazy(() =>
 const ManageCard = lazy(() =>
   import('./pages/ManageCard').then((m) => ({ default: m.ManageCard })),
 );
+const Legal = lazy(() => import('./pages/Legal').then((m) => ({ default: m.Legal })));
+const Founder = lazy(() => import('./pages/Founder').then((m) => ({ default: m.Founder })));
 
 const RouteFallback = () => (
   <div className="min-h-screen bg-gradient-to-br from-bg-dark-start to-bg-dark-end flex items-center justify-center">
@@ -52,6 +55,8 @@ function App() {
 
   return (
     <Suspense fallback={<RouteFallback />}>
+      {/* Audience analytics — records each page view (admins excluded server-side). */}
+      <VisitTracker />
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/section/:sectionId" element={<SectionPage />} />
@@ -61,6 +66,9 @@ function App() {
         <Route path="/checkout/return" element={<CheckoutReturn />} />
         <Route path="/create-greeting" element={<CreateGreeting />} />
         <Route path="/manage/:token" element={<ManageCard />} />
+        <Route path="/founder" element={<Founder />} />
+        <Route path="/terms" element={<Legal kind="terms" />} />
+        <Route path="/privacy" element={<Legal kind="privacy" />} />
       </Routes>
     </Suspense>
   );

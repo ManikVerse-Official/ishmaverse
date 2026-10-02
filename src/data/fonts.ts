@@ -97,6 +97,92 @@ export const greetingFonts: GreetingFont[] = [
     sample: 'Fun & joyful',
     mood: 'Birthdays, kids, celebrations',
   },
+
+  /* ---- Extra faces — wider variety of looks for every occasion ---- */
+  {
+    id: 'marcellus',
+    label: 'Marcellus',
+    family: "'Marcellus', 'Playfair Display', Georgia, serif",
+    sample: 'Grace in every word',
+    mood: 'Invitations, elegant formal wishes',
+  },
+  {
+    id: 'dm-serif',
+    label: 'DM Serif',
+    family: "'DM Serif Display', 'Playfair Display', Georgia, serif",
+    sample: 'Timeless sophistication',
+    mood: 'Weddings, anniversaries, luxury',
+  },
+  {
+    id: 'yeseva',
+    label: 'Yeseva Display',
+    family: "'Yeseva One', 'Playfair Display', Georgia, serif",
+    sample: 'Celebrate in style',
+    mood: 'Festivals, milestones, bold elegance',
+  },
+  {
+    id: 'lora',
+    label: 'Lora',
+    family: "'Lora', Georgia, 'Times New Roman', serif",
+    sample: 'Warm and well-read',
+    mood: 'Personal notes, anniversaries',
+  },
+  {
+    id: 'josefin',
+    label: 'Josefin',
+    family: "'Josefin Sans', 'Poppins', system-ui, sans-serif",
+    sample: 'Graceful modern',
+    mood: 'Congrats, invitations, minimal cards',
+  },
+  {
+    id: 'outfit',
+    label: 'Outfit',
+    family: "'Outfit', 'Inter', system-ui, sans-serif",
+    sample: 'Fresh and contemporary',
+    mood: 'Corporate, milestones, everyday',
+  },
+  {
+    id: 'fredoka',
+    label: 'Fredoka',
+    family: "'Fredoka', 'Baloo 2', system-ui, sans-serif",
+    sample: 'Bubbly and cheerful',
+    mood: 'Kids, birthdays, fun wishes',
+  },
+  {
+    id: 'bebas',
+    label: 'Bebas Headline',
+    family: "'Bebas Neue', 'Anton', Impact, sans-serif",
+    sample: 'BIG BOLD WISHES',
+    mood: 'Parties, announcements, posters',
+  },
+  {
+    id: 'satisfy',
+    label: 'Satisfy Script',
+    family: "'Satisfy', 'Segoe Script', cursive",
+    sample: 'Just for you',
+    mood: 'Romance, friendly notes',
+  },
+  {
+    id: 'kaushan',
+    label: 'Kaushan Script',
+    family: "'Kaushan Script', 'Segoe Script', cursive",
+    sample: 'Every moment counts',
+    mood: 'Festivals, birthdays, joyful wishes',
+  },
+  {
+    id: 'parisienne',
+    label: 'Parisienne',
+    family: "'Parisienne', 'Segoe Script', cursive",
+    sample: 'A touch of Paris',
+    mood: 'Weddings, elegant notes, romance',
+  },
+  {
+    id: 'permanent-marker',
+    label: 'Marker',
+    family: "'Permanent Marker', 'Comic Sans MS', cursive",
+    sample: 'Hand-drawn vibes',
+    mood: 'Fun, casual, kids, friends',
+  },
 ];
 
 export const DEFAULT_FONT_ID = 'classic-serif';

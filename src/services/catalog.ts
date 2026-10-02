@@ -1,5 +1,5 @@
 import { GreetingTheme, GreetingTier, Product } from '../types';
-import { buildDesignForTier, greetingThemes } from '../data/greetingThemes';
+import { buildDesignForTier, greetingThemes, sortFreeThemeFirst } from '../data/greetingThemes';
 import { defaultProducts } from '../data/products';
 import { isSupabaseConfigured, supabase } from './supabase';
 
@@ -125,10 +125,14 @@ export const applyThemePatches = (state: CatalogState): GreetingTheme[] => {
 
   // Older saved themes predate the USD field, so make sure every theme always
   // has a usable price_usd (falling back to a conversion of the INR price).
-  return [...builtIn, ...custom].map((theme) => ({
+  const normalized = [...builtIn, ...custom].map((theme) => ({
     ...theme,
     price_usd: deriveUsdPrice(theme.price, theme.price_usd),
   }));
+
+  // The free welcome card always leads the storefront — even after custom themes
+  // are added or a remote catalog sync reorders the list.
+  return sortFreeThemeFirst(normalized);
 };
 
 const newId = (prefix: string): string => {
@@ -169,8 +173,14 @@ export const getThemePriceRanges = (
   themes: GreetingTheme[],
 ): { inrMin: number; inrMax: number; usdMin: number; usdMax: number } => {
   if (themes.length === 0) return { inrMin: 0, inrMax: 0, usdMin: 0, usdMax: 0 };
-  const inr = themes.map((theme) => Number(theme.price) || 0);
-  const usd = themes.map((theme) => deriveUsdPrice(theme.price, theme.price_usd));
+  // Free themes (price 0) are excluded so the storefront range badge shows the
+  // real paid range rather than "₹0–₹157".
+  const paid = themes.filter(
+    (theme) => (Number(theme.price) || 0) > 0 || (Number(theme.price_usd) || 0) > 0,
+  );
+  const priced = paid.length > 0 ? paid : themes;
+  const inr = priced.map((theme) => Number(theme.price) || 0);
+  const usd = priced.map((theme) => deriveUsdPrice(theme.price, theme.price_usd));
   return {
     inrMin: Math.min(...inr),
     inrMax: Math.max(...inr),
